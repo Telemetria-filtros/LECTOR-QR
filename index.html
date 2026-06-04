@@ -309,11 +309,16 @@
             return cabeceras + filas;
         }
 
+       // PEGA AQUÍ LA URL DE TU SCRIPT DE GOOGLE
+        const URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbywGDoNx1ES3hoJsvm6k_xpt_5QDgv3kxkCoLG1tdB4t7_E58IeOF9ow6iDhYntWb29GQ/exec";
+        // ============================================================================
+
         async function cerrarTurno() {
             if (registrosOffline.length === 0) return alert("No hay datos registrados en este turno.");
             
             const btn = document.querySelector('.btn-enviar');
-            btn.innerText = "Procesando..."; btn.disabled = true;
+            btn.innerText = "Procesando..."; 
+            btn.disabled = true;
 
             const datosEntrada = registrosOffline.filter(r => r.ubicacion === 'Entrada');
             const datosSalida = registrosOffline.filter(r => r.ubicacion === 'Salida');
@@ -321,69 +326,66 @@
             const textoEntrada = convertirATexto(datosEntrada);
             const textoSalida = convertirATexto(datosSalida);
 
-            // Agregamos la hora al nombre del archivo para que los respaldos no se sobreescriban
             const fecha = new Date();
             const fechaTurno = fecha.toISOString().slice(0,10);
-            const horaTurno = fecha.getHours() + "-" + fecha.getMinutes();
+            const horaTurno = fecha.getHours() + "-" + (fecha.getMinutes() < 10 ? '0' : '') + fecha.getMinutes();
+            const fechaCompleta = `${fechaTurno}_${horaTurno}`;
             
-            const archivoEntrada = new File([textoEntrada], `PIP_Entrada_${fechaTurno}_${horaTurno}.txt`, {type: "text/plain"});
-            const archivoSalida = new File([textoSalida], `PIP_Salida_${fechaTurno}_${horaTurno}.txt`, {type: "text/plain"});
+            const archivoEntrada = new File([textoEntrada], `PIP_Entrada_${fechaCompleta}.txt`, {type: "text/plain"});
+            const archivoSalida = new File([textoSalida], `PIP_Salida_${fechaCompleta}.txt`, {type: "text/plain"});
 
-            // 1. SIEMPRE forzar la descarga de respaldo local primero
-            descargarRespaldoLocal(archivoEntrada, archivoSalida, btn);
+            // 1. Descargar el respaldo local físicamente en la memoria de la tablet
+            descargarRespaldoLocal(archivoEntrada, archivoSalida);
+
+            // 2. Enviar los datos automáticamente a Google para que mande el correo
+            enviarDatosPorCorreo(textoEntrada, textoSalida, fechaCompleta, btn);
         }
 
-        function descargarRespaldoLocal(file1, file2, btn) {
-            // Descarga el archivo de Entrada
+        function descargarRespaldoLocal(file1, file2) {
             const link1 = document.createElement('a');
             link1.href = URL.createObjectURL(file1);
             link1.download = file1.name;
             link1.click();
 
-            // Pausa de 1 segundo para que la tablet no bloquee la segunda descarga
             setTimeout(() => {
-                // Descarga el archivo de Salida
                 const link2 = document.createElement('a');
                 link2.href = URL.createObjectURL(file2);
                 link2.download = file2.name;
                 link2.click();
-                
-                // 2. Pasar a las opciones de envío y limpieza
-                setTimeout(() => {
-                    preguntarEnvioYLimpieza(file1, file2, btn);
-                }, 800);
-            }, 1000); 
+            }, 800); 
         }
 
-        async function preguntarEnvioYLimpieza(file1, file2, btn) {
-            const confirmacionEnvio = confirm("✅ Los archivos de respaldo ya se guardaron en la memoria de la tablet.\n\n¿Deseas enviar los archivos por correo en este momento?");
-            
-            if (confirmacionEnvio) {
-                if (navigator.canShare && navigator.canShare({ files: [file1, file2] })) {
-                    try {
-                        await navigator.share({
-                            files: [file1, file2],
-                            title: 'Cierre de Turno PIP',
-                            text: 'Se adjuntan los registros de tiempos de charolas (Entrada y Salida).'
-                        });
-                    } catch (error) {
-                        console.log('El usuario canceló el envío o hubo un error.', error);
-                    }
-                } else {
-                    alert("Tu tablet no soporta la apertura automática del correo. Por favor, abre tu aplicación de correo y adjunta los archivos que se acaban de descargar.");
-                }
-            }
+        function enviarDatosPorCorreo(csvEntrada, csvSalida, fechaCompleta, btn) {
+            // Empaquetamos los datos para mandarlos al Webhook de Google
+            const payload = {
+                csvEntrada: csvEntrada,
+                csvSalida: csvSalida,
+                fechaCompleta: fechaCompleta
+            };
 
-            // Confirmación de seguridad antes de borrar
-            const confirmacionBorrado = confirm("⚠️ ATENCIÓN ⚠️\n\n¿Confirmas que ya tienes tu respaldo y deseas BORRAR la memoria para iniciar un nuevo turno?");
-            
-            if(confirmacionBorrado) {
-                registrosOffline = []; 
-                localStorage.removeItem('pip_lote_datos');
-                actualizarContador(); 
-                document.getElementById('log').innerHTML = '<strong>Historial local:</strong><br>';
-                alert("Memoria limpiada. La tablet está lista para el siguiente elemento.");
-            }
+            // Usamos mode: 'no-cors' para que las políticas de seguridad de la tablet no bloqueen el envío
+            fetch(URL_GOOGLE_SCRIPT, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            }).then(() => {
+                alert("✅ Archivos respaldados localmente y correo enviado con éxito.");
+                limpiarMemoria(btn);
+            }).catch((error) => {
+                // Si falla (ej. no hay internet), el respaldo local ya se hizo
+                alert("⚠️ Se guardó el respaldo en la tablet, pero hubo un error al enviar el correo automático. Verifica tu conexión a internet.");
+                limpiarMemoria(btn);
+            });
+        }
+
+        function limpiarMemoria(btn) {
+            registrosOffline = []; 
+            localStorage.removeItem('pip_lote_datos');
+            actualizarContador(); 
+            document.getElementById('log').innerHTML = '<strong>Historial local:</strong><br>';
             
             btn.innerText = "📤 Cierre y Envío"; 
             btn.disabled = false;
