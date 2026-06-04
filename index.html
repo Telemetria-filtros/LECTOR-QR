@@ -6,8 +6,13 @@
     <title>Telemetría PIP - Charolas QR</title>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: #eef2f3; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; }
+        /* Añadimos transición al body para el cambio de color */
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: #eef2f3; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; transition: background-color 0.4s ease; }
         
+        /* Clases dinámicas para el fondo */
+        body.modo-entrada { background-color: #eef2f3; }
+        body.modo-salida { background-color: #fbebeb; } /* Rojo muy claro de advertencia */
+
         .logo-img { max-width: 180px; height: auto; margin-top: 10px; margin-bottom: 5px; }
         
         h2 { color: #2c3e50; margin: 0 0 10px 0; font-size: 1.5em; text-align: center; }
@@ -60,7 +65,7 @@
         </div>
 
         <div class="controls">
-            <label style="flex: 1;"><input type="radio" name="ubicacion" value="Entrada" checked><div class="radio-btn entrada">ENTRADA</div></label>
+            <label style="flex: 1;"><input type="radio" name="ubicacion" value="Entrada"><div class="radio-btn entrada">ENTRADA</div></label>
             <label style="flex: 1;"><input type="radio" name="ubicacion" value="Salida"><div class="radio-btn salida">SALIDA</div></label>
         </div>
 
@@ -141,6 +146,7 @@
         const selTerminal = document.getElementById('terminal');
         const selFiltro = document.getElementById('filtro');
         const selLinea = document.getElementById('linea');
+        const contMotivo = document.getElementById('contenedor-motivo');
 
         function inicializarMenus() {
             selTerminal.innerHTML = '';
@@ -168,38 +174,82 @@
             for (let i = 1; i <= numLineas; i++) {
                 selLinea.innerHTML += `<option value="Línea ${i}">Línea ${i}</option>`;
             }
+            guardarEstadoUi(); // Guarda cambios al mover cascada
         }
 
+        // --- SISTEMA DE MEMORIA ANTI-RECARGAS ---
+        function guardarEstadoUi() {
+            const ubicacionRadio = document.querySelector('input[name="ubicacion"]:checked');
+            const estado = {
+                terminal: selTerminal.value,
+                filtro: selFiltro.value,
+                linea: selLinea.value,
+                ubicacion: ubicacionRadio ? ubicacionRadio.value : 'Entrada'
+            };
+            localStorage.setItem('pip_estado_ui', JSON.stringify(estado));
+        }
+
+        function restaurarEstadoUi() {
+            const estadoGuardado = JSON.parse(localStorage.getItem('pip_estado_ui'));
+            
+            if (estadoGuardado) {
+                selTerminal.value = estadoGuardado.terminal;
+                actualizarFiltros(); // Fuerza actualización en cascada
+                selFiltro.value = estadoGuardado.filtro;
+                actualizarLineas(); // Fuerza actualización en cascada
+                selLinea.value = estadoGuardado.linea;
+                
+                // Restaura radio button de Entrada/Salida
+                document.querySelector(`input[name="ubicacion"][value="${estadoGuardado.ubicacion}"]`).checked = true;
+            } else {
+                // Si no hay guardado previo, asume Entrada por defecto
+                document.querySelector(`input[name="ubicacion"][value="Entrada"]`).checked = true;
+            }
+            
+            aplicarCambiosVisuales();
+        }
+
+        function aplicarCambiosVisuales() {
+            const ubicacionActiva = document.querySelector('input[name="ubicacion"]:checked').value;
+            
+            if(ubicacionActiva === 'Salida') {
+                contMotivo.classList.add('visible');
+                document.body.classList.remove('modo-entrada');
+                document.body.classList.add('modo-salida');
+            } else {
+                contMotivo.classList.remove('visible');
+                document.body.classList.remove('modo-salida');
+                document.body.classList.add('modo-entrada');
+            }
+            guardarEstadoUi();
+        }
+
+        // Eventos para la interfaz
         selTerminal.addEventListener('change', actualizarFiltros);
         selFiltro.addEventListener('change', actualizarLineas);
+        selLinea.addEventListener('change', guardarEstadoUi);
+        
+        const radios = document.querySelectorAll('input[name="ubicacion"]');
+        radios.forEach(radio => {
+            radio.addEventListener('change', aplicarCambiosVisuales);
+        });
+
+        // Inicialización
         inicializarMenus(); 
+        restaurarEstadoUi(); // Carga la memoria al iniciar
 
         // --- MANEJO DE MEMORIA OFFLINE ---
         let registrosOffline = JSON.parse(localStorage.getItem('pip_lote_datos')) || [];
         let bloqueosTemporales = {}; 
         
-        // --- LÓGICA DE INTERFAZ (MOSTRAR MOTIVOS) ---
-        const radios = document.querySelectorAll('input[name="ubicacion"]');
-        const contMotivo = document.getElementById('contenedor-motivo');
-        
-        radios.forEach(radio => {
-            radio.addEventListener('change', (e) => {
-                if(e.target.value === 'Salida') {
-                    contMotivo.classList.add('visible');
-                } else {
-                    contMotivo.classList.remove('visible');
-                }
-            });
-        });
-
         // --- SEGURO ANTI-OLVIDOS (15 Minutos) ---
         let tiempoUltimaValidacion = Date.now();
         const LIMITE_ALERTA = 15 * 60 * 1000; 
 
         function auditarUbicacion() {
             if (Date.now() - tiempoUltimaValidacion > LIMITE_ALERTA) {
-                const lineaSel = document.getElementById('linea').value;
-                const filtroSel = document.getElementById('filtro').value;
+                const lineaSel = selLinea.value;
+                const filtroSel = selFiltro.value;
                 const confirmacion = confirm(`⚠️ CONTROL DE CALIDAD AVSEC ⚠️\n\nHan pasado 15 minutos.\n¿Confirmas que sigues escaneando en el filtro ${filtroSel}, ${lineaSel}?\n\n- Dale OK si sigues ahí.\n- Dale Cancelar si te moviste y actualiza el menú arriba.`);
                 
                 if (!confirmacion) {
@@ -217,7 +267,6 @@
             const ahora = Date.now();
             const logDiv = document.getElementById('log');
 
-            // Ya no aplicamos HASH porque queremos identificar la charola (ej: Charola-001)
             const idCharola = decodedText; 
 
             // Evitar escanear la MISMA charola accidentalmente en los siguientes 30 segundos
@@ -229,12 +278,12 @@
 
             const nuevoRegistro = {
                 charola: idCharola,
-                terminal: document.getElementById('terminal').value,
-                filtro: document.getElementById('filtro').value,
-                linea: document.getElementById('linea').value,
+                terminal: selTerminal.value,
+                filtro: selFiltro.value,
+                linea: selLinea.value,
                 ubicacion: ubicacionActiva,
                 motivo: motivoAsignado,
-                timestamp: new Date().toLocaleString('es-MX') // Formato local
+                timestamp: new Date().toLocaleString('es-MX')
             };
 
             registrosOffline.push(nuevoRegistro);
@@ -252,22 +301,20 @@
             document.getElementById('contador').innerText = `Registros: ${registrosOffline.length}`;
         }
 
-        // Convertir array de objetos a formato texto (CSV separado por comas)
         function convertirATexto(datos) {
             if (datos.length === 0) return "No hay registros.\n";
             const cabeceras = "Fecha y Hora,ID_Charola,Terminal,Filtro,Linea,Ubicacion,Motivo\n";
+            // Nota: Se respeta la coma como separador regional
             const filas = datos.map(r => `"${r.timestamp}","${r.charola}","${r.terminal}","${r.filtro}","${r.linea}","${r.ubicacion}","${r.motivo}"`).join('\n');
             return cabeceras + filas;
         }
 
-        // Lógica para exportar y enviar por correo
         async function cerrarTurno() {
             if (registrosOffline.length === 0) return alert("No hay datos registrados en este turno.");
             
             const btn = document.querySelector('.btn-enviar');
             btn.innerText = "Procesando..."; btn.disabled = true;
 
-            // Separar datos de entrada y salida
             const datosEntrada = registrosOffline.filter(r => r.ubicacion === 'Entrada');
             const datosSalida = registrosOffline.filter(r => r.ubicacion === 'Salida');
 
@@ -276,11 +323,9 @@
 
             const fechaTurno = new Date().toISOString().slice(0,10);
             
-            // Crear archivos (Blobs)
             const archivoEntrada = new File([textoEntrada], `PIP_Entrada_${fechaTurno}.txt`, {type: "text/plain"});
             const archivoSalida = new File([textoSalida], `PIP_Salida_${fechaTurno}.txt`, {type: "text/plain"});
 
-            // Intentar usar la API Nativa de Compartir de las Tablets (Envía directo por correo)
             if (navigator.canShare && navigator.canShare({ files: [archivoEntrada, archivoSalida] })) {
                 try {
                     await navigator.share({
@@ -290,17 +335,16 @@
                     });
                     limpiarTurno(btn);
                 } catch (error) {
-                    console.log('Compartir cancelado o falló.', error);
+                    console.log('Compartir falló.', error);
                     descargaManual(archivoEntrada, archivoSalida, btn);
                 }
             } else {
-                // Si la tablet no soporta envío directo, se descargan los archivos para adjuntarlos
                 descargaManual(archivoEntrada, archivoSalida, btn);
             }
         }
 
         function descargaManual(file1, file2, btn) {
-            alert("Tu dispositivo no soporta envío automático por correo. Se descargarán los archivos para que los adjuntes manualmente.");
+            alert("Tu dispositivo no soporta envío automático. Se descargarán los archivos para que los adjuntes manualmente.");
             
             const link1 = document.createElement('a');
             link1.href = URL.createObjectURL(file1);
@@ -314,7 +358,7 @@
                 link2.click();
                 
                 limpiarTurno(btn);
-            }, 1000); // Pequeña pausa para permitir la segunda descarga en tablets
+            }, 1000); 
         }
 
         function limpiarTurno(btn) {
@@ -328,7 +372,6 @@
             btn.innerText = "📤 Cierre y Envío"; btn.disabled = false;
         }
 
-        // Optimizado para escanear solo Códigos QR de forma rápida
         const scanner = new Html5QrcodeScanner("reader", { 
             fps: 15, 
             qrbox: { width: 250, height: 250 }, 
