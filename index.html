@@ -321,55 +321,72 @@
             const textoEntrada = convertirATexto(datosEntrada);
             const textoSalida = convertirATexto(datosSalida);
 
-            const fechaTurno = new Date().toISOString().slice(0,10);
+            // Agregamos la hora al nombre del archivo para que los respaldos no se sobreescriban
+            const fecha = new Date();
+            const fechaTurno = fecha.toISOString().slice(0,10);
+            const horaTurno = fecha.getHours() + "-" + fecha.getMinutes();
             
-            const archivoEntrada = new File([textoEntrada], `PIP_Entrada_${fechaTurno}.txt`, {type: "text/plain"});
-            const archivoSalida = new File([textoSalida], `PIP_Salida_${fechaTurno}.txt`, {type: "text/plain"});
+            const archivoEntrada = new File([textoEntrada], `PIP_Entrada_${fechaTurno}_${horaTurno}.txt`, {type: "text/plain"});
+            const archivoSalida = new File([textoSalida], `PIP_Salida_${fechaTurno}_${horaTurno}.txt`, {type: "text/plain"});
 
-            if (navigator.canShare && navigator.canShare({ files: [archivoEntrada, archivoSalida] })) {
-                try {
-                    await navigator.share({
-                        files: [archivoEntrada, archivoSalida],
-                        title: 'Cierre de Turno PIP',
-                        text: 'Se adjuntan los registros de tiempos de charolas (Entrada y Salida).'
-                    });
-                    limpiarTurno(btn);
-                } catch (error) {
-                    console.log('Compartir falló.', error);
-                    descargaManual(archivoEntrada, archivoSalida, btn);
-                }
-            } else {
-                descargaManual(archivoEntrada, archivoSalida, btn);
-            }
+            // 1. SIEMPRE forzar la descarga de respaldo local primero
+            descargarRespaldoLocal(archivoEntrada, archivoSalida, btn);
         }
 
-        function descargaManual(file1, file2, btn) {
-            alert("Tu dispositivo no soporta envío automático. Se descargarán los archivos para que los adjuntes manualmente.");
-            
+        function descargarRespaldoLocal(file1, file2, btn) {
+            // Descarga el archivo de Entrada
             const link1 = document.createElement('a');
             link1.href = URL.createObjectURL(file1);
             link1.download = file1.name;
             link1.click();
 
+            // Pausa de 1 segundo para que la tablet no bloquee la segunda descarga
             setTimeout(() => {
+                // Descarga el archivo de Salida
                 const link2 = document.createElement('a');
                 link2.href = URL.createObjectURL(file2);
                 link2.download = file2.name;
                 link2.click();
                 
-                limpiarTurno(btn);
+                // 2. Pasar a las opciones de envío y limpieza
+                setTimeout(() => {
+                    preguntarEnvioYLimpieza(file1, file2, btn);
+                }, 800);
             }, 1000); 
         }
 
-        function limpiarTurno(btn) {
-            const confirmacion = confirm("¿Los archivos se generaron/enviaron correctamente? Si aceptas, se borrará la memoria de este turno.");
-            if(confirmacion) {
+        async function preguntarEnvioYLimpieza(file1, file2, btn) {
+            const confirmacionEnvio = confirm("✅ Los archivos de respaldo ya se guardaron en la memoria de la tablet.\n\n¿Deseas enviar los archivos por correo en este momento?");
+            
+            if (confirmacionEnvio) {
+                if (navigator.canShare && navigator.canShare({ files: [file1, file2] })) {
+                    try {
+                        await navigator.share({
+                            files: [file1, file2],
+                            title: 'Cierre de Turno PIP',
+                            text: 'Se adjuntan los registros de tiempos de charolas (Entrada y Salida).'
+                        });
+                    } catch (error) {
+                        console.log('El usuario canceló el envío o hubo un error.', error);
+                    }
+                } else {
+                    alert("Tu tablet no soporta la apertura automática del correo. Por favor, abre tu aplicación de correo y adjunta los archivos que se acaban de descargar.");
+                }
+            }
+
+            // Confirmación de seguridad antes de borrar
+            const confirmacionBorrado = confirm("⚠️ ATENCIÓN ⚠️\n\n¿Confirmas que ya tienes tu respaldo y deseas BORRAR la memoria para iniciar un nuevo turno?");
+            
+            if(confirmacionBorrado) {
                 registrosOffline = []; 
                 localStorage.removeItem('pip_lote_datos');
                 actualizarContador(); 
                 document.getElementById('log').innerHTML = '<strong>Historial local:</strong><br>';
+                alert("Memoria limpiada. La tablet está lista para el siguiente elemento.");
             }
-            btn.innerText = "📤 Cierre y Envío"; btn.disabled = false;
+            
+            btn.innerText = "📤 Cierre y Envío"; 
+            btn.disabled = false;
         }
 
         const scanner = new Html5QrcodeScanner("reader", { 
