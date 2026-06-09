@@ -356,27 +356,26 @@
         }
 
         function enviarDatosPorCorreo(csvEntrada, csvSalida, fechaCompleta, btn) {
-            // Empaquetamos los datos para mandarlos al Webhook de Google
             const payload = {
                 csvEntrada: csvEntrada,
                 csvSalida: csvSalida,
                 fechaCompleta: fechaCompleta
             };
 
-            // Usamos mode: 'no-cors' para que las políticas de seguridad de la tablet no bloqueen el envío
-            fetch(URL_GOOGLE_SCRIPT, {
+            fetch("https://script.google.com/macros/s/AKfycbywGDoNx1ES3hoJsvm6k_xpt_5QDgv3kxkCoLG1tdB4t7_E58IeOF9ow6iDhYntWb29GQ/exec", {
                 method: 'POST',
-                mode: 'no-cors',
+                // Eliminamos mode: 'no-cors'
                 headers: {
-                    'Content-Type': 'application/json'
+                    // Usamos text/plain para que el navegador no bloquee la petición a Google
+                    'Content-Type': 'text/plain;charset=utf-8' 
                 },
                 body: JSON.stringify(payload)
-            }).then(() => {
+            }).then(response => {
+                // Google Apps Script suele devolver una redirección o un texto simple si está bien configurado
                 alert("✅ Archivos respaldados localmente y correo enviado con éxito.");
                 limpiarMemoria(btn);
             }).catch((error) => {
-                // Si falla (ej. no hay internet), el respaldo local ya se hizo
-                alert("⚠️ Se guardó el respaldo en la tablet, pero hubo un error al enviar el correo automático. Verifica tu conexión a internet.");
+                alert("⚠️ Se guardó el respaldo en la tablet, pero hubo un error de red al contactar al servidor.");
                 limpiarMemoria(btn);
             });
         }
@@ -392,12 +391,16 @@
         }
 
         const scanner = new Html5QrcodeScanner("reader", { 
-            fps: 15, 
+            fps: 30, // Aumentamos la tasa de refresco para capturas más rápidas
             qrbox: { width: 250, height: 250 }, 
             aspectRatio: 1.0, 
-            formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ] 
+            formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
+            videoConstraints: {
+                facingMode: "environment", // Fuerza el uso de la cámara trasera
+                focusMode: "continuous", // Intenta forzar el autoenfoque continuo
+                advanced: [{ zoom: 2.0 }] // Opcional: aplica un ligero zoom si la tablet lo soporta
+            }
         }, false);
-        
         scanner.render(onScanSuccess);
     </script>
 </body>
