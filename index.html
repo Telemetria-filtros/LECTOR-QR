@@ -275,8 +275,8 @@
 
             const idCharola = decodedText; 
 
-            // Evitar escanear la MISMA charola accidentalmente en los siguientes 30 segundos
-            if (bloqueosTemporales[idCharola] && (ahora - bloqueosTemporales[idCharola] < 30 * 1000)) return;
+            // Evitar escanear la MISMA charola accidentalmente en los siguientes 5 segundos
+            if (bloqueosTemporales[idCharola] && (ahora - bloqueosTemporales[idCharola] < 5 * 1000)) return;
             bloqueosTemporales[idCharola] = ahora;
 
             const ubicacionActiva = document.querySelector('input[name="ubicacion"]:checked').value;
